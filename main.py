@@ -5,6 +5,7 @@ auth.log -> parse -> feature -> ML -> alert
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +31,14 @@ class LogPipeline:
         if not self.log_path.exists():
             raise FileNotFoundError(f"Log file not found: {self.log_path}")
 
-        with self.log_path.open("r", encoding="utf-8", errors="ignore") as f:
-            all_lines = f.readlines()
+        try:
+            with self.log_path.open("r", encoding="utf-8", errors="ignore") as f:
+                all_lines = f.readlines()
+        except PermissionError as exc:
+            raise PermissionError(
+                f"Permission denied when reading log file: {self.log_path}. "
+                "Try running with a readable file or use sudo."
+            ) from exc
 
         selected_lines = all_lines[-self.max_lines :] if self.max_lines > 0 else all_lines
 
@@ -70,7 +77,47 @@ class LogPipeline:
             self.alert.send_alert(row.to_dict())
 
 
+def resolve_log_path(cli_log_path: str | None) -> Path:
+    if cli_log_path:
+        return Path(cli_log_path)
+
+    default_candidates = [Path("auth.log"), Path("/var/log/auth.log")]
+    for candidate in default_candidates:
+        if candidate.exists():
+            return candidate
+
+    return Path("auth.log")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Linux auth.log anomaly detection")
+    parser.add_argument(
+        "--log-path",
+        type=str,
+        default=None,
+        help="Path to auth log file. Example: /var/log/auth.log",
+    )
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default="isolation_forest_model.joblib",
+        help="Path to trained model file",
+    )
+    parser.add_argument(
+        "--max-lines",
+        type=int,
+        default=500,
+        help="How many latest lines to analyze (0 = all)",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    pipeline = LogPipeline()
+    args = parse_args()
+    pipeline = LogPipeline(
+        log_path=resolve_log_path(args.log_path),
+        model_path=args.model_path,
+        max_lines=args.max_lines,
+    )
     pipeline.run()
 

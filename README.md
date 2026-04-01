@@ -6,26 +6,44 @@ Pipeline:
 
 ## 1. Yeu cau
 
-- Windows + PowerShell
 - Python 3.10+
+- Ho tro:
+	- Windows (PowerShell)
+	- Linux (bash)
 
 Kiem tra Python:
+
+Windows:
 
 ```powershell
 python --version
 ```
 
+Linux:
+
+```bash
+python3 --version
+```
+
 ## 2. Tao virtual environment (venv)
 
-Chay trong thu muc project:
+Chay trong thu muc project.
+
+Windows:
 
 ```powershell
 python -m venv .venv
 ```
 
+Linux:
+
+```bash
+python3 -m venv .venv
+```
+
 ## 3. Kich hoat venv
 
-PowerShell:
+Windows (PowerShell):
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -38,12 +56,27 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 ```
 
+Linux (bash):
+
+```bash
+source .venv/bin/activate
+```
+
 Sau khi active, ban se thay `(.venv)` o dau dong lenh.
 
 ## 4. Cai dependencies
 
+Windows:
+
 ```powershell
 python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Linux:
+
+```bash
+python3 -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
@@ -57,8 +90,22 @@ Bat buoc co san model:
 
 ## 6. Chay chuong trinh
 
+Windows:
+
 ```powershell
 python main.py
+```
+
+Linux:
+
+```bash
+python3 main.py --log-path /var/log/auth.log
+```
+
+Neu file log nam trong project (ten `auth.log`), ban co the chay:
+
+```bash
+python3 main.py
 ```
 
 Ket qua:
@@ -77,3 +124,4 @@ deactivate
 
 - File `main.py` hien doc batch cac dong gan nhat trong `auth.log` (khong phai realtime tail).
 - So dong phan tich mac dinh la 500 dong cuoi.
+- Tren Linux, neu bi loi quyen doc `/var/log/auth.log`, hay chay voi `sudo` hoac copy log ra file ban co quyen doc.
