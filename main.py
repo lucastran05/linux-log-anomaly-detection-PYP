@@ -97,6 +97,7 @@ class LogPipeline:
 
                 analyzed = 0
                 anomalies = 0
+                show_stats = getattr(self, "show_realtime_stats", False)
 
                 while True:
                     line = f.readline()
@@ -122,7 +123,7 @@ class LogPipeline:
                         anomalies += 1
                         self.alert.send_alert(result_row.to_dict())
 
-                    if analyzed % 20 == 0:
+                    if show_stats and analyzed % 20 == 0:
                         print(f"[*] Realtime analyzed: {analyzed} | anomalies: {anomalies}")
 
         except PermissionError as exc:
@@ -180,6 +181,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="In realtime mode, start reading from beginning instead of current EOF",
     )
+    parser.add_argument(
+        "--show-realtime-stats",
+        action="store_true",
+        help="Show periodic counters in realtime mode (for debugging)",
+    )
     return parser.parse_args()
 
 
@@ -190,6 +196,7 @@ if __name__ == "__main__":
         model_path=args.model_path,
         max_lines=args.max_lines,
     )
+    pipeline.show_realtime_stats = args.show_realtime_stats
     if args.realtime:
         try:
             pipeline.run_realtime(
