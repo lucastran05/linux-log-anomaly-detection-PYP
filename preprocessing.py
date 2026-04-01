@@ -4,7 +4,7 @@ import json
 import re
 import unicodedata
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -75,7 +75,7 @@ def sanitize_token(value: Any) -> str:
     return text or "unknown"
 
 
-def load_scaling_stats(json_path: str | Path) -> Dict[str, Dict[str, float]]:
+def load_scaling_stats(json_path: Union[str, Path]) -> Dict[str, Dict[str, float]]:
     with open(json_path, "r", encoding="utf-8") as f:
         payload = json.load(f)
 
@@ -314,7 +314,7 @@ def preprocess_dataframe(
 
 
 def preprocess_csv(
-    csv_path: str | Path,
+    csv_path: Union[str, Path],
     expected_feature_names: Optional[list[str]] = None,
     scaling_stats: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:

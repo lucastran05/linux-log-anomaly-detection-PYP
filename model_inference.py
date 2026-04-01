@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import joblib
 import numpy as np
@@ -12,7 +12,26 @@ import pandas as pd
 from preprocessing import enrich_columns_from_message, load_scaling_stats, preprocess_csv, preprocess_dataframe
 
 
-def load_model_bundle(model_path: str | Path) -> Dict[str, Any]:
+def _ensure_numpy_core_compat() -> None:
+    # Compatibility shim: some joblib artifacts created with newer NumPy
+    # may reference numpy._core while old environments expose numpy.core.
+    if "numpy._core" in sys.modules:
+        return
+    try:
+        import numpy.core as np_core
+
+        sys.modules.setdefault("numpy._core", np_core)
+        if hasattr(np_core, "multiarray"):
+            sys.modules.setdefault("numpy._core.multiarray", np_core.multiarray)
+        if hasattr(np_core, "numeric"):
+            sys.modules.setdefault("numpy._core.numeric", np_core.numeric)
+    except Exception:
+        # If aliasing fails, keep original behavior and surface actual load error.
+        return
+
+
+def load_model_bundle(model_path: Union[str, Path]) -> Dict[str, Any]:
+    _ensure_numpy_core_compat()
     try:
         bundle = joblib.load(model_path)
     except ModuleNotFoundError as exc:
@@ -59,12 +78,19 @@ def _predict_scores(model: Any, X: pd.DataFrame) -> Dict[str, np.ndarray]:
 
 def predict_from_dataframe(
     input_df: pd.DataFrame,
-    model_path: str | Path,
+    model_path: Union[str, Path],
     scaling_stats: Optional[Dict[str, Dict[str, float]]] = None,
+    loaded_bundle: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    loaded = load_model_bundle(model_path)
+    loaded = loaded_bundle if loaded_bundle is not None else load_model_bundle(model_path)
     model = loaded["model"]
     feature_names = loaded["feature_names"]
+
+    if feature_names is None and hasattr(model, "feature_names_in_"):
+        try:
+            feature_names = [str(col) for col in list(model.feature_names_in_)]
+        except Exception:
+            feature_names = None
 
     feature_df, preprocess_meta = preprocess_dataframe(
         input_df,
@@ -96,17 +122,27 @@ def predict_from_dataframe(
 
 
 def predict_from_csv(
-    csv_path: str | Path,
-    model_path: str | Path,
-    scaling_stats_path: Optional[str | Path] = None,
+    csv_path: Union[str, Path],
+    model_path: Union[str, Path],
+    scaling_stats_path: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Any]:
     scaling_stats = None
     if scaling_stats_path:
         scaling_stats = load_scaling_stats(scaling_stats_path)
 
+    expected_feature_names = load_model_bundle(model_path)["feature_names"]
+    if expected_feature_names is None:
+        loaded_for_schema = load_model_bundle(model_path)
+        model_for_schema = loaded_for_schema["model"]
+        if hasattr(model_for_schema, "feature_names_in_"):
+            try:
+                expected_feature_names = [str(col) for col in list(model_for_schema.feature_names_in_)]
+            except Exception:
+                expected_feature_names = None
+
     raw_df, feature_df, preprocess_meta = preprocess_csv(
         csv_path=csv_path,
-        expected_feature_names=load_model_bundle(model_path)["feature_names"],
+        expected_feature_names=expected_feature_names,
         scaling_stats=scaling_stats,
     )
 
