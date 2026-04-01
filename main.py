@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 
 import pandas as pd
 
@@ -18,8 +18,8 @@ from readlog_final import calculate_features, parse_line
 class LogPipeline:
     def __init__(
         self,
-        log_path: str | Path = "auth.log",
-        model_path: str | Path = "isolation_forest_model.joblib",
+        log_path: Union[str, Path] = "auth.log",
+        model_path: Union[str, Path] = "isolation_forest_model.joblib",
         max_lines: int = 500,
     ):
         self.alert = AlertManager()
@@ -77,7 +77,7 @@ class LogPipeline:
             self.alert.send_alert(row.to_dict())
 
 
-def resolve_log_path(cli_log_path: str | None) -> Path:
+def resolve_log_path(cli_log_path: Optional[str]) -> Path:
     if cli_log_path:
         return Path(cli_log_path)
 
