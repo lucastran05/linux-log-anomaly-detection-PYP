@@ -1,55 +1,75 @@
 import re
 import time
 import csv
-from datetime import datetime
+import sys
+from datetime import datetime, timedelta
 from collections import defaultdict, deque
+from dateutil import parser  # Cần cài: pip install python-dateutil
 
-# --- CẤU HÌNH REGEX (Giữ nguyên để bắt E1 - E20) ---
+# --- CẤU HÌNH ---
+LOG_FILE = "/var/log/auth.log"
+OUTPUT_FILE = "realtime_output.csv"
 IP_PATTERN = r'(?:from|rhost=| rhost\s+|host\s+)(?P<ip>[\d\.]+)'
 USER_PATTERN = r'(?:for |user |user=)(?P<user>[a-zA-Z0-9_\-\.]+)'
 
-# Bộ nhớ đệm tính toán
+# Bộ nhớ đệm
+buffer_logs = [] 
 history = defaultdict(deque)
 global_window = deque()
+
+def parse_date_from_log(line):
+    """
+    Tự động bóc tách và định dạng ngày tháng từ dòng log.
+    Xử lý cả dạng 'Oct 10 10:00:01' và '2024-10-10T10:00:01+07:00'
+    """
+    try:
+        # Lấy 15-30 ký tự đầu tiên thường chứa timestamp
+        date_str = " ".join(line.split()[:3]) # Dạng truyền thống
+        if "T" in line.split()[0]: # Dạng ISO8601
+            date_str = line.split()[0]
+        
+        dt = parser.parse(date_str, fuzzy=True)
+        # Nếu log thiếu năm (như định dạng cũ), tự gán năm hiện tại
+        if dt.year == 1900:
+            dt = dt.replace(year=datetime.now().year)
+        return dt
+    except:
+        return datetime.now()
 
 def parse_line(line):
     line = line.strip()
     if not line: return None
 
-    # Phân loại sự kiện
+    # Phân loại trạng thái
     status = "other"
-    is_fail = any(kw in line for kw in ["Failed password", "authentication failure", "invalid user", "user unknown", "password check failed", "maximum authentication attempts exceeded"])
-    is_success = any(kw in line for kw in ["Accepted password", "session opened"])
-    is_conn = any(kw in line for kw in ["Connection closed", "Received disconnect", "Did not receive identification string"])
+    if any(kw in line for kw in ["Failed password", "authentication failure", "invalid user"]):
+        status = "failed"
+    elif any(kw in line for kw in ["Accepted password", "session opened"]):
+        status = "success"
+    else:
+        return None
 
-    if is_fail: status = "failed"
-    elif is_success: status = "success"
-    elif is_conn: status = "connection_event"
-    else: return None
-
-    # Trích xuất Field
+    # Trích xuất thông tin
     ip_match = re.search(IP_PATTERN, line)
     user_match = re.search(USER_PATTERN, line)
     pid_match = re.search(r"\[(?P<pid>\d+)\]", line)
-    port_match = re.search(r"port\s+(?P<port>\d+)", line)
     comp_match = re.search(r"\s(?P<comp>[\w\-\[\]]+):", line)
 
-    ip = ip_match.group('ip') if ip_match else "unknown"
-    user = user_match.group('user') if user_match else "unknown"
+    log_time = parse_date_from_log(line)
     
     return {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "ts_obj": datetime.now(),
+        "ts_obj": log_time,
+        "timestamp": log_time.strftime("%Y-%m-%d %H:%M:%S"),
         "component": comp_match.group('comp').split('[')[0] if comp_match else "sshd",
         "pid": pid_match.group('pid') if pid_match else "0",
-        "ip": ip,
-        "username": user,
-        "port": port_match.group('port') if port_match else "22",
+        "ip": ip_match.group('ip') if ip_match else "unknown",
+        "username": user_match.group('user') if user_match else "unknown",
+        "port": "22",
         "action": "login_attempt",
         "status": status,
         "raw": line[:150],
-        "is_invalid_user": "TRUE" if "invalid user" in line.lower() or "user unknown" in line.lower() else "FALSE",
-        "is_root_attempt": "TRUE" if user == "root" else "FALSE"
+        "is_invalid_user": "1" if "invalid user" in line.lower() else "0",
+        "is_root_attempt": "1" if "user root" in line or "for root" in line else "0"
     }
 
 def calculate_features(row):
@@ -58,7 +78,7 @@ def calculate_features(row):
     history[ip].append(row)
     global_window.append(row)
     
-    # Cleanup > 5 phút
+    # Cleanup dữ liệu cũ hơn 5 phút để nhẹ máy
     while history[ip] and (now - history[ip][0]["ts_obj"]).total_seconds() > 300:
         history[ip].popleft()
     while global_window and (now - global_window[0]["ts_obj"]).total_seconds() > 300:
@@ -67,6 +87,7 @@ def calculate_features(row):
     last_5m_ip = list(history[ip])
     last_1m_ip = [r for r in last_5m_ip if (now - r["ts_obj"]).total_seconds() <= 60]
     last_1m_global = [r for r in global_window if (now - r["ts_obj"]).total_seconds() <= 60]
+    
     time_diff = (now - last_5m_ip[-2]["ts_obj"]).total_seconds() if len(last_5m_ip) > 1 else 0
 
     return {
@@ -80,39 +101,47 @@ def calculate_features(row):
         "unique_ip_count": len(set(r["ip"] for r in last_1m_global)),
         "unique_user_count": len(set(r["username"] for r in last_1m_global)),
         "time_since_last_attempt": round(time_diff, 2),
-        "is_night": "TRUE" if now.hour < 6 or now.hour > 22 else "FALSE",
-        "event_frequency": round(len(last_1m_ip) / 1.0, 2)
+        "is_night": "1" if now.hour < 6 or now.hour > 22 else "0"
     }
 
 def main():
-    log_file = "/var/log/auth.log"
-    output_file = "realtime_output.csv"
-    fieldnames = ["timestamp", "component", "pid", "ip", "username", "port", "action", "status", "raw", "is_invalid_user", "is_root_attempt", "fail_count_1m", "fail_count_5m", "success_count_5m", "unique_ip_count", "unique_user_count", "time_since_last_attempt", "is_night", "event_frequency"]
+    fieldnames = ["timestamp", "component", "pid", "ip", "username", "port", "action", "status", "raw", "is_invalid_user", "is_root_attempt", "fail_count_1m", "fail_count_5m", "success_count_5m", "unique_ip_count", "unique_user_count", "time_since_last_attempt", "is_night"]
 
-    print("[*] CHẾ ĐỘ: THỜI GIAN THỰC (Skip log cũ)")
-    print("[*] Đang đợi dữ liệu mới... (Nhấn Ctrl+C để dừng)")
+    print(f"[*] Đang theo dõi log: {LOG_FILE}")
+    print("[*] Chế độ: Đóng gói dữ liệu mỗi 60 giây...")
 
-    with open(log_file, "r") as f, open(output_file, "a", newline="", encoding="utf-8") as out:
+    with open(LOG_FILE, "r") as f, open(OUTPUT_FILE, "a", newline="", encoding="utf-8") as out:
         writer = csv.DictWriter(out, fieldnames=fieldnames)
-        # Nếu file trống thì mới viết Header
-        if out.tell() == 0:
-            writer.writeheader()
+        if out.tell() == 0: writer.writeheader()
         
-        # Nhảy đến cuối file ngay lập tức
-        f.seek(0, 2)
-        
+        f.seek(0, 2) # Nhảy đến cuối file
+        last_flush_time = time.time()
+
         while True:
             line = f.readline()
+            if line:
+                parsed = parse_line(line)
+                if parsed:
+                    buffer_logs.append(parsed)
+            
+            # Kiểm tra nếu đã đủ 60 giây thì "cắt" và xử lý
+            current_time = time.time()
+            if current_time - last_flush_time >= 60:
+                if buffer_logs:
+                    print(f"--- Đang xử lý {len(buffer_logs)} bản tin của 1 phút vừa qua ---")
+                    for item in buffer_logs:
+                        feat = calculate_features(item)
+                        writer.writerow(feat)
+                    out.flush()
+                    buffer_logs.clear() # Xóa đệm để chờ phút tiếp theo
+                
+                last_flush_time = current_time
+            
             if not line:
                 time.sleep(0.1)
-                continue
-            
-            parsed = parse_line(line)
-            if parsed:
-                feat = calculate_features(parsed)
-                writer.writerow(feat)
-                out.flush()
-                print(f"[{feat['timestamp']}] Detect {feat['status']} from {feat['ip']} (User: {feat['username']})")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n[!] Đã dừng chương trình.")
