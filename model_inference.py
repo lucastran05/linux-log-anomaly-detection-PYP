@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 from typing import Any, Dict, Optional
 
 import joblib
@@ -12,7 +13,18 @@ from preprocessing import enrich_columns_from_message, load_scaling_stats, prepr
 
 
 def load_model_bundle(model_path: str | Path) -> Dict[str, Any]:
-    bundle = joblib.load(model_path)
+    try:
+        bundle = joblib.load(model_path)
+    except ModuleNotFoundError as exc:
+        if "numpy._core" in str(exc):
+            raise RuntimeError(
+                "Model compatibility error: cannot import numpy._core while loading model. "
+                "This usually means environment mismatch (often Python 3.8 + older NumPy). "
+                f"Current Python: {sys.version.split()[0]}. "
+                "Use Python 3.10+ and reinstall dependencies from requirements.txt, "
+                "or retrain/re-export model in the current environment."
+            ) from exc
+        raise
 
     if isinstance(bundle, dict) and "model" in bundle:
         model = bundle["model"]

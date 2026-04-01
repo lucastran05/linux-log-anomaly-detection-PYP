@@ -125,3 +125,32 @@ deactivate
 - File `main.py` hien doc batch cac dong gan nhat trong `auth.log` (khong phai realtime tail).
 - So dong phan tich mac dinh la 500 dong cuoi.
 - Tren Linux, neu bi loi quyen doc `/var/log/auth.log`, hay chay voi `sudo` hoac copy log ra file ban co quyen doc.
+
+## Khac phuc loi thuong gap (Linux)
+
+Neu gap loi khi load model:
+
+`ModuleNotFoundError: No module named 'numpy._core'`
+
+Nguyen nhan thuong do dung sai version Python/NumPy so voi model da train.
+
+Cach khac phuc de xuat:
+
+```bash
+# 1) Kiem tra version Python (nen la 3.10+)
+python3 --version
+
+# 2) Tao lai venv bang Python 3.10/3.11
+rm -rf .venv
+python3.10 -m venv .venv
+source .venv/bin/activate
+
+# 3) Cai lai dependencies
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+# 4) Chay lai
+python main.py --log-path /var/log/auth.log
+```
+
+Neu may khong co `python3.10`, cai them Python 3.10+ hoac retrain model trong dung moi truong hien tai.
