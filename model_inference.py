@@ -85,6 +85,12 @@ def predict_from_dataframe(
     model = loaded["model"]
     feature_names = loaded["feature_names"]
 
+    if feature_names is None and hasattr(model, "feature_names_in_"):
+        try:
+            feature_names = [str(col) for col in list(model.feature_names_in_)]
+        except Exception:
+            feature_names = None
+
     feature_df, preprocess_meta = preprocess_dataframe(
         input_df,
         expected_feature_names=feature_names,
@@ -123,9 +129,19 @@ def predict_from_csv(
     if scaling_stats_path:
         scaling_stats = load_scaling_stats(scaling_stats_path)
 
+    expected_feature_names = load_model_bundle(model_path)["feature_names"]
+    if expected_feature_names is None:
+        loaded_for_schema = load_model_bundle(model_path)
+        model_for_schema = loaded_for_schema["model"]
+        if hasattr(model_for_schema, "feature_names_in_"):
+            try:
+                expected_feature_names = [str(col) for col in list(model_for_schema.feature_names_in_)]
+            except Exception:
+                expected_feature_names = None
+
     raw_df, feature_df, preprocess_meta = preprocess_csv(
         csv_path=csv_path,
-        expected_feature_names=load_model_bundle(model_path)["feature_names"],
+        expected_feature_names=expected_feature_names,
         scaling_stats=scaling_stats,
     )
 
