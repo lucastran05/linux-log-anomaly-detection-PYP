@@ -122,6 +122,12 @@ Neu can thong ke debug (so event da phan tich):
 python3 main.py --log-path /var/log/auth.log --realtime --show-realtime-stats
 ```
 
+Flow cat log moi 60 giay (log -> raw/feature in-memory -> ML -> alert anomaly):
+
+```bash
+python3 main.py --log-path /var/log/auth.log --minute-batch --cut-seconds 60
+```
+
 Neu file log nam trong project (ten `auth.log`), ban co the chay:
 
 ```bash
