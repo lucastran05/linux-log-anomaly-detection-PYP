@@ -80,8 +80,9 @@ def predict_from_dataframe(
     input_df: pd.DataFrame,
     model_path: Union[str, Path],
     scaling_stats: Optional[Dict[str, Dict[str, float]]] = None,
+    loaded_bundle: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    loaded = load_model_bundle(model_path)
+    loaded = loaded_bundle if loaded_bundle is not None else load_model_bundle(model_path)
     model = loaded["model"]
     feature_names = loaded["feature_names"]
 

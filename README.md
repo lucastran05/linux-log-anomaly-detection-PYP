@@ -102,6 +102,18 @@ Linux:
 python3 main.py --log-path /var/log/auth.log
 ```
 
+Realtime tu luc chay (tail log moi):
+
+```bash
+python3 main.py --log-path /var/log/auth.log --realtime
+```
+
+Neu muon doc tu dau file trong realtime mode:
+
+```bash
+python3 main.py --log-path /var/log/auth.log --realtime --from-beginning
+```
+
 Neu file log nam trong project (ten `auth.log`), ban co the chay:
 
 ```bash

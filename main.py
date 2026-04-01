@@ -6,13 +6,14 @@ auth.log -> parse -> feature -> ML -> alert
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 from typing import Any, Optional, Union
 
 import pandas as pd
 
 from alert import AlertManager
-from model_inference import predict_from_dataframe
+from model_inference import load_model_bundle, predict_from_dataframe
 from readlog_final import calculate_features, parse_line
 
 class LogPipeline:
@@ -76,6 +77,60 @@ class LogPipeline:
         for _, row in anomalies.iterrows():
             self.alert.send_alert(row.to_dict())
 
+    def run_realtime(self, poll_interval: float = 0.2, start_at_end: bool = True):
+        print("[*] Starting detection (realtime mode) ...")
+
+        if not self.model_path.exists():
+            raise FileNotFoundError(f"Model file not found: {self.model_path}")
+        if not self.log_path.exists():
+            raise FileNotFoundError(f"Log file not found: {self.log_path}")
+
+        loaded_bundle = load_model_bundle(self.model_path)
+
+        try:
+            with self.log_path.open("r", encoding="utf-8", errors="ignore") as f:
+                if start_at_end:
+                    f.seek(0, 2)
+                    print("[*] Realtime tail from now (ignoring old lines).")
+                else:
+                    print("[*] Realtime tail from beginning of file.")
+
+                analyzed = 0
+                anomalies = 0
+
+                while True:
+                    line = f.readline()
+                    if not line:
+                        time.sleep(poll_interval)
+                        continue
+
+                    parsed = parse_line(line)
+                    if not parsed:
+                        continue
+
+                    feature_row = calculate_features(parsed)
+                    prediction_output = predict_from_dataframe(
+                        input_df=pd.DataFrame([feature_row]),
+                        model_path=self.model_path,
+                        loaded_bundle=loaded_bundle,
+                    )
+
+                    result_row = prediction_output["dataframe"].iloc[0]
+                    analyzed += 1
+
+                    if int(result_row.get("is_anomaly", 0)) == 1:
+                        anomalies += 1
+                        self.alert.send_alert(result_row.to_dict())
+
+                    if analyzed % 20 == 0:
+                        print(f"[*] Realtime analyzed: {analyzed} | anomalies: {anomalies}")
+
+        except PermissionError as exc:
+            raise PermissionError(
+                f"Permission denied when reading log file: {self.log_path}. "
+                "Try running with a readable file or use sudo."
+            ) from exc
+
 
 def resolve_log_path(cli_log_path: Optional[str]) -> Path:
     if cli_log_path:
@@ -109,6 +164,22 @@ def parse_args() -> argparse.Namespace:
         default=500,
         help="How many latest lines to analyze (0 = all)",
     )
+    parser.add_argument(
+        "--realtime",
+        action="store_true",
+        help="Tail log file in realtime from the moment the app starts",
+    )
+    parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=0.2,
+        help="Polling interval in seconds for realtime mode",
+    )
+    parser.add_argument(
+        "--from-beginning",
+        action="store_true",
+        help="In realtime mode, start reading from beginning instead of current EOF",
+    )
     return parser.parse_args()
 
 
@@ -119,5 +190,14 @@ if __name__ == "__main__":
         model_path=args.model_path,
         max_lines=args.max_lines,
     )
-    pipeline.run()
+    if args.realtime:
+        try:
+            pipeline.run_realtime(
+                poll_interval=max(args.poll_interval, 0.05),
+                start_at_end=not args.from_beginning,
+            )
+        except KeyboardInterrupt:
+            print("\n[!] Realtime detection stopped.")
+    else:
+        pipeline.run()
 
