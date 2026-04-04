@@ -6,7 +6,7 @@ Pipeline:
 
 `auth.log -> parse -> feature engineering -> preprocess theo schema model -> predict -> alert`
 
-## 1. Yêu cầu hệ thống (chỉ Linux)
+## 1. Yêu cầu hệ thống
 
 - OS: Linux
 - Python: 3.10+
@@ -85,9 +85,9 @@ python main.py --log-path /var/log/auth.log --realtime --show-realtime-stats
 python main.py --log-path /var/log/auth.log --realtime --poll-interval 0.2
 ```
 
-### 4.3 Minute-batch mode
+### 4.3 Chế độ từng phút
 
-Gom log theo từng cửa sổ thời gian (`cut-seconds`) rồi dự đoán theo lô.
+Gom log theo từng cửa sổ thời gian (`cut-seconds`) rồi dự đoán theo thời gian config.
 
 ```bash
 python main.py --log-path /var/log/auth.log --minute-batch --cut-seconds 60
