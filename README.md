@@ -1,182 +1,115 @@
 # Linux Log Anomaly Detection (Python)
 
+Dự án phát hiện bất thường trên log xác thực Linux (`auth.log`) bằng mô hình Isolation Forest.
+
 Pipeline:
 
-`auth.log -> parse -> feature engineering -> ML inference -> alert`
+`auth.log -> parse -> feature engineering -> preprocess theo schema model -> predict -> alert`
 
-## 1. Yeu cau
+## 1. Yêu cầu hệ thống (chỉ Linux)
 
-- Python 3.10+
-- Ho tro:
-	- Windows (PowerShell)
-	- Linux (bash)
+- OS: Linux
+- Python: 3.10+
+- File model đã được huấn luyện: `isolation_forest_model.joblib`
 
-Kiem tra Python:
-
-Windows:
-
-```powershell
-python --version
-```
-
-Linux:
+Kiểm tra Python:
 
 ```bash
 python3 --version
 ```
 
-## 2. Tao virtual environment (venv)
+## 2. Cài đặt nhanh
 
-Chay trong thu muc project.
-
-Windows:
-
-```powershell
-python -m venv .venv
-```
-
-Linux:
+Chạy tại thư mục project:
 
 ```bash
 python3 -m venv .venv
-```
-
-## 3. Kich hoat venv
-
-Windows (PowerShell):
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-Neu gap loi execution policy:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
-```
-
-Linux (bash):
-
-```bash
 source .venv/bin/activate
-```
-
-Sau khi active, ban se thay `(.venv)` o dau dong lenh.
-
-## 4. Cai dependencies
-
-Windows:
-
-```powershell
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Linux:
+## 3. Cấu hình đầu vào
+
+Chương trình sẽ tìm log theo thứ tự:
+
+1. Giá trị từ `--log-path` (nếu bạn truyền vào).
+2. File `auth.log` trong thư mục project.
+3. `/var/log/auth.log` tren Linux.
+
+Model mặc định:
+
+- `--model-path isolation_forest_model.joblib`
+
+Nếu đọc `/var/log/auth.log` bị lỗi quyền, dùng `sudo` hoặc copy log sang file bạn có quyền đọc.
+
+## 4. Các chế độ chạy
+
+### 4.1 Batch mode (mặc định)
+
+Đọc `N` dòng cuối, phân tích 1 lần rồi kết thúc.
 
 ```bash
-python3 -m pip install --upgrade pip
-pip install -r requirements.txt
+python main.py --log-path /var/log/auth.log --max-lines 500
 ```
 
-## 5. Chuan bi du lieu
+Ghi chú:
 
-Dat file log dau vao trong project voi ten `auth.log` (mac dinh duoc doc boi `main.py`).
+- `--max-lines 0`: đọc toàn bộ file.
 
-Bat buoc co san model:
+### 4.2 Realtime mode
 
-- `isolation_forest_model.joblib`
-
-## 6. Chay chuong trinh
-
-Windows:
-
-```powershell
-python main.py
-```
-
-Linux:
+Tail log liên tục, có dòng mới là dự đoán ngay.
 
 ```bash
-python3 main.py --log-path /var/log/auth.log
+python main.py --log-path /var/log/auth.log --realtime
 ```
 
-Realtime tu luc chay (tail log moi):
+Tùy chọn hay dùng:
+
+- Đọc từ đầu file thay vì bỏ qua log cũ:
 
 ```bash
-python3 main.py --log-path /var/log/auth.log --realtime
+python main.py --log-path /var/log/auth.log --realtime --from-beginning
 ```
 
-Mac dinh realtime chi in alert bat thuong.
-
-Neu muon doc tu dau file trong realtime mode:
+- In thống kê định kỳ:
 
 ```bash
-python3 main.py --log-path /var/log/auth.log --realtime --from-beginning
+python main.py --log-path /var/log/auth.log --realtime --show-realtime-stats
 ```
 
-Neu can thong ke debug (so event da phan tich):
+- Điều chỉnh tần suất poll:
 
 ```bash
-python3 main.py --log-path /var/log/auth.log --realtime --show-realtime-stats
+python main.py --log-path /var/log/auth.log --realtime --poll-interval 0.2
 ```
 
-Flow cat log moi 60 giay (log -> raw/feature in-memory -> ML -> alert anomaly):
+### 4.3 Minute-batch mode
+
+Gom log theo từng cửa sổ thời gian (`cut-seconds`) rồi dự đoán theo lô.
 
 ```bash
-python3 main.py --log-path /var/log/auth.log --minute-batch --cut-seconds 60
+python main.py --log-path /var/log/auth.log --minute-batch --cut-seconds 60
 ```
 
-Neu file log nam trong project (ten `auth.log`), ban co the chay:
+Tùy chọn bổ sung:
 
 ```bash
-python3 main.py
+python main.py --log-path /var/log/auth.log --minute-batch --cut-seconds 30 --from-beginning
 ```
 
-Ket qua:
+## 5. Kết quả đầu ra
 
-- In tong so event duoc phan tich
-- In so anomaly tim thay
-- In alert chi tiet (User, IP, anomaly score) cho tung event bat thuong
+- Batch mode: in tổng số event đã phân tích và số anomaly.
+- Realtime/Minute-batch: in cảnh báo ngay khi gặp anomaly.
+- Nội dung alert gồm thông tin chính như user, IP, anomaly score.
 
-## 7. Tat venv
+## 6. Tắt chương trình
 
-```powershell
+- Realtime/Minute-batch: nhấn `Ctrl + C`.
+- Thoát virtual environment:
+
+```bash
 deactivate
 ```
-
-## Ghi chu
-
-- File `main.py` hien doc batch cac dong gan nhat trong `auth.log` (khong phai realtime tail).
-- So dong phan tich mac dinh la 500 dong cuoi.
-- Tren Linux, neu bi loi quyen doc `/var/log/auth.log`, hay chay voi `sudo` hoac copy log ra file ban co quyen doc.
-
-## Khac phuc loi thuong gap (Linux)
-
-Neu gap loi khi load model:
-
-`ModuleNotFoundError: No module named 'numpy._core'`
-
-Nguyen nhan thuong do dung sai version Python/NumPy so voi model da train.
-
-Cach khac phuc de xuat:
-
-```bash
-# 1) Kiem tra version Python (nen la 3.10+)
-python3 --version
-
-# 2) Tao lai venv bang Python 3.10/3.11
-rm -rf .venv
-python3.10 -m venv .venv
-source .venv/bin/activate
-
-# 3) Cai lai dependencies
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-
-# 4) Chay lai
-python main.py --log-path /var/log/auth.log
-```
-
-Neu may khong co `python3.10`, cai them Python 3.10+ hoac retrain model trong dung moi truong hien tai.
