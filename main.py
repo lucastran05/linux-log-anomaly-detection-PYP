@@ -1,8 +1,3 @@
-"""
-Main pipeline:
-auth.log -> parse -> feature -> ML -> alert
-"""
-
 from __future__ import annotations
 
 import argparse
