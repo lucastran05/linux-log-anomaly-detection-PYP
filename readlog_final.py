@@ -9,13 +9,34 @@ from dateutil import parser  # Cần cài: pip install python-dateutil
 # --- CẤU HÌNH ---
 LOG_FILE = "/var/log/auth.log"
 OUTPUT_FILE = "realtime_output.csv"
-IP_PATTERN = r'(?:from|rhost=| rhost\s+|host\s+)(?P<ip>[\d\.]+)'
+IP_PATTERN = r'(?:from\s+|rhost=|rhost\s+|host\s+)(?P<ip>\d+\.\d+\.\d+\.\d+)'
 USER_PATTERN = r'(?:for |user |user=)(?P<user>[a-zA-Z0-9_\-\.]+)'
+
+# Các pattern fallback để giảm hụt trường username
+USER_FALLBACK_PATTERNS = [
+    re.compile(r"invalid user\s+(?P<user>[a-zA-Z0-9_\-\.]+)", re.IGNORECASE),
+    re.compile(r"for\s+(?:invalid user\s+)?(?P<user>[a-zA-Z0-9_\-\.]+)", re.IGNORECASE),
+    re.compile(r"user(?:name)?[=:]\s*(?P<user>[a-zA-Z0-9_\-\.]+)", re.IGNORECASE),
+    re.compile(r"session opened for user\s+(?P<user>[a-zA-Z0-9_\-\.]+)", re.IGNORECASE),
+]
 
 # Bộ nhớ đệm
 buffer_logs = [] 
 history = defaultdict(deque)
 global_window = deque()
+
+
+def extract_username(line):
+    user_match = re.search(USER_PATTERN, line, re.IGNORECASE)
+    if user_match:
+        return user_match.group('user')
+
+    for pattern in USER_FALLBACK_PATTERNS:
+        match = pattern.search(line)
+        if match:
+            return match.group('user')
+
+    return "unknown"
 
 def parse_date_from_log(line):
     """
@@ -51,7 +72,7 @@ def parse_line(line):
 
     # Trích xuất thông tin
     ip_match = re.search(IP_PATTERN, line)
-    user_match = re.search(USER_PATTERN, line)
+    username = extract_username(line)
     pid_match = re.search(r"\[(?P<pid>\d+)\]", line)
     comp_match = re.search(r"\s(?P<comp>[\w\-\[\]]+):", line)
 
@@ -63,7 +84,7 @@ def parse_line(line):
         "component": comp_match.group('comp').split('[')[0] if comp_match else "sshd",
         "pid": pid_match.group('pid') if pid_match else "0",
         "ip": ip_match.group('ip') if ip_match else "unknown",
-        "username": user_match.group('user') if user_match else "unknown",
+        "username": username,
         "port": "22",
         "action": "login_attempt",
         "status": status,
@@ -117,6 +138,9 @@ def main():
         f.seek(0, 2) # Nhảy đến cuối file
         last_flush_time = time.time()
 
+        total_processed = 0
+        total_missing_user = 0
+
         while True:
             line = f.readline()
             if line:
@@ -129,9 +153,28 @@ def main():
             if current_time - last_flush_time >= 60:
                 if buffer_logs:
                     print(f"--- Đang xử lý {len(buffer_logs)} bản tin của 1 phút vừa qua ---")
+                    minute_missing_user = 0
                     for item in buffer_logs:
+                        if item["username"] == "unknown":
+                            minute_missing_user += 1
                         feat = calculate_features(item)
                         writer.writerow(feat)
+
+                    total_processed += len(buffer_logs)
+                    total_missing_user += minute_missing_user
+
+                    minute_ratio = (minute_missing_user / len(buffer_logs)) * 100
+                    total_ratio = (total_missing_user / total_processed) * 100 if total_processed else 0.0
+
+                    print(
+                        f"[*] Username unknown (1 phút): {minute_missing_user}/{len(buffer_logs)} ({minute_ratio:.1f}%)"
+                    )
+                    if minute_ratio >= 30.0:
+                        print("[!] Cảnh báo: trường username đang bị hụt nhiều trong phút vừa qua.")
+                    print(
+                        f"[*] Username unknown (tổng): {total_missing_user}/{total_processed} ({total_ratio:.1f}%)"
+                    )
+
                     out.flush()
                     buffer_logs.clear() # Xóa đệm để chờ phút tiếp theo
                 
